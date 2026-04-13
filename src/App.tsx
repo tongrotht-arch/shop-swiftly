@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
 import RoleSelect from "./pages/RoleSelect";
+import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import ShopCreate from "./pages/ShopCreate";
 import Products from "./pages/Products";
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/role-select" element={<RoleSelect />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/shop/create" element={<ShopCreate />} />
             <Route path="/products" element={<Products />} />
