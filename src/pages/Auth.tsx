@@ -17,13 +17,22 @@ export default function Auth() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (isSignUp) {
+      if (isForgotPassword) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+        if (error) throw error;
+        toast({ title: "Check your email", description: "We sent you a password reset link." });
+        setIsForgotPassword(false);
+      } else if (isSignUp) {
         await signUp(email, password, displayName);
-        toast({ title: "Account created!", description: "Please check your email to verify your account." });
+        toast({ title: "Account created!", description: "You can now sign in." });
       } else {
         await signIn(email, password);
         navigate("/");
