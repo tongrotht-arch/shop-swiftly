@@ -52,23 +52,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Set up auth listener first - NEVER await inside onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          await Promise.all([
+          // Fire and forget - no await to prevent deadlock
+          Promise.all([
             fetchProfile(session.user.id),
             fetchRoles(session.user.id),
-          ]);
+          ]).then(() => setLoading(false));
         } else {
           setProfile(null);
           setRoles([]);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
+    // Then restore session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
