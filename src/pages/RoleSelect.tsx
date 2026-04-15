@@ -1,14 +1,26 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useTelegram } from "@/hooks/useTelegram";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Store, ShoppingBag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function RoleSelect() {
-  const { setRole } = useAuth();
+  const { setRole, user } = useAuth();
+  const { isTelegram } = useTelegram();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">
+          {isTelegram ? "Authenticating..." : "Please open this app inside Telegram."}
+        </p>
+      </div>
+    );
+  }
 
   const handleRole = async (role: "seller" | "customer") => {
     try {
