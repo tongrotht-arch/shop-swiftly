@@ -4,6 +4,9 @@ const GATEWAY_URL = 'https://connector-gateway.lovable.dev/telegram';
 const MAX_RUNTIME_MS = 55_000;
 const MIN_REMAINING_MS = 5_000;
 
+// IMPORTANT: Replace with your actual bot username
+const BOT_USERNAME = 'your_bot'; // TODO: Update this
+
 Deno.serve(async () => {
   const startTime = Date.now();
 
@@ -16,6 +19,8 @@ Deno.serve(async () => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  const WEBAPP_URL = Deno.env.get('WEBAPP_URL') ?? 'https://id-preview--f6a482f8-4c4d-42d9-a42b-07b705db1134.lovable.app';
 
   let totalProcessed = 0;
   let currentOffset: number;
@@ -62,61 +67,78 @@ Deno.serve(async () => {
     const updates = data.result ?? [];
     if (updates.length === 0) continue;
 
-    // Process each message
     for (const update of updates) {
       if (!update.message) continue;
       const msg = update.message;
       const chatId = msg.chat.id;
       const text = msg.text ?? '';
 
-      // Handle /start command
       if (text.startsWith('/start')) {
         const parts = text.split(' ');
         const shopSlug = parts.length > 1 ? parts[1] : null;
 
         if (shopSlug) {
-          // Deep link to a shop
           const { data: shop } = await supabase
             .from('shops')
             .select('name, slug')
             .eq('slug', shopSlug)
             .single();
 
-          const shopUrl = `${Deno.env.get('SUPABASE_URL')?.replace('.supabase.co', '')}`; // will use frontend URL
-          const replyText = shop
-            ? `🛒 <b>${shop.name}</b>\n\nVisit their shop to browse and order:\n${shopUrl}/shop/${shop.slug}`
-            : `Welcome! Unfortunately, that shop wasn't found.`;
-
-          await sendMessage(chatId, replyText, LOVABLE_API_KEY, TELEGRAM_API_KEY);
+          if (shop) {
+            // Send Mini App button for the shop
+            await sendMessageWithWebApp(
+              chatId,
+              `🛒 <b>${shop.name}</b>\n\nTap the button below to browse and order:`,
+              `Open ${shop.name}`,
+              `${WEBAPP_URL}?startapp=${shop.slug}`,
+              LOVABLE_API_KEY,
+              TELEGRAM_API_KEY,
+            );
+          } else {
+            await sendMessage(chatId, `Welcome! Unfortunately, that shop wasn't found.`, LOVABLE_API_KEY, TELEGRAM_API_KEY);
+          }
         } else {
-          await sendMessage(
+          await sendMessageWithWebApp(
             chatId,
-            '👋 Welcome to ShopBot!\n\nAre you a <b>Seller</b> or a <b>Customer</b>?\n\n/seller - Set up your shop\n/customer - Browse shops',
+            '👋 <b>Welcome to ShopBot!</b>\n\nTap below to open the app.\n\nSellers can manage their shop, customers can browse and order.',
+            'Open ShopBot',
+            WEBAPP_URL,
             LOVABLE_API_KEY,
             TELEGRAM_API_KEY,
           );
         }
-      } else if (text === '/seller') {
-        // Store telegram chat_id for notifications
-        await sendMessage(
+      } else if (text === '/seller' || text === '/dashboard') {
+        await sendMessageWithWebApp(
           chatId,
-          '🏪 Great! To set up your shop, visit our website and create an account as a Seller.\n\nOnce you create your shop, come back and send /link to connect your Telegram for order notifications.',
+          '🏪 Tap below to open your Seller Dashboard:',
+          'Open Dashboard',
+          `${WEBAPP_URL}?startapp=dashboard`,
           LOVABLE_API_KEY,
           TELEGRAM_API_KEY,
         );
-      } else if (text === '/link') {
-        // Link telegram to shop - store chat_id
-        const linkCode = chatId.toString();
+      } else if (text.startsWith('/shop')) {
+        const parts = text.split(' ');
+        const slug = parts.length > 1 ? parts[1] : null;
+        if (slug) {
+          await sendMessageWithWebApp(
+            chatId,
+            `🛍 Tap below to open the shop:`,
+            'Open Shop',
+            `${WEBAPP_URL}?startapp=${slug}`,
+            LOVABLE_API_KEY,
+            TELEGRAM_API_KEY,
+          );
+        } else {
+          await sendMessage(chatId, 'Usage: /shop <slug>', LOVABLE_API_KEY, TELEGRAM_API_KEY);
+        }
+      } else if (text === '/help') {
         await sendMessage(
           chatId,
-          `🔗 Your Telegram Link Code: <code>${linkCode}</code>\n\nEnter this code in your Seller Dashboard to receive order notifications here.`,
-          LOVABLE_API_KEY,
-          TELEGRAM_API_KEY,
-        );
-      } else if (text === '/customer') {
-        await sendMessage(
-          chatId,
-          '🛍 To browse shops, you need a shop link from a seller.\n\nAsk your seller for their shop link!',
+          '📖 <b>Commands:</b>\n\n' +
+          '/start - Open the Mini App\n' +
+          '/seller - Open Seller Dashboard\n' +
+          '/shop <slug> - Open a specific shop\n' +
+          '/help - Show this help',
           LOVABLE_API_KEY,
           TELEGRAM_API_KEY,
         );
@@ -161,5 +183,33 @@ async function sendMessage(chatId: number, text: string, lovableKey: string, tel
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+  });
+}
+
+async function sendMessageWithWebApp(
+  chatId: number,
+  text: string,
+  buttonText: string,
+  webAppUrl: string,
+  lovableKey: string,
+  telegramKey: string,
+) {
+  await fetch(`${GATEWAY_URL}/sendMessage`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${lovableKey}`,
+      'X-Connection-Api-Key': telegramKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: buttonText, web_app: { url: webAppUrl } },
+        ]],
+      },
+    }),
   });
 }

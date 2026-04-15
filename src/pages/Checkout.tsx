@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useTelegram } from "@/hooks/useTelegram";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,10 +22,12 @@ export default function Checkout() {
   const navigate = useNavigate();
   const { slug } = useParams();
   const { user } = useAuth();
+  const { tgUser } = useTelegram();
   const { toast } = useToast();
   const { cart, shop } = (location.state as { cart: CartItem[]; shop: Tables<"shops"> }) ?? { cart: [], shop: null };
 
-  const [customerName, setCustomerName] = useState("");
+  // Pre-fill from Telegram user data
+  const [customerName, setCustomerName] = useState(tgUser?.first_name ?? "");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,31 +50,12 @@ export default function Checkout() {
     setLoading(true);
 
     try {
-      // If not logged in, sign up first
-      let userId = user?.id;
-      if (!userId) {
-        // For guest checkout, create a temporary account
-        const tempEmail = `guest-${Date.now()}@temp.local`;
-        const { data: authData, error: authErr } = await supabase.auth.signUp({
-          email: tempEmail,
-          password: crypto.randomUUID(),
-          options: { data: { display_name: customerName } },
-        });
-        if (authErr) throw authErr;
-        userId = authData.user?.id;
-        
-        // Set customer role
-        if (userId) {
-          await supabase.from("user_roles").insert({ user_id: userId, role: "customer" });
-        }
-      }
-
-      if (!userId) throw new Error("Failed to create session");
+      if (!user) throw new Error("Not authenticated. Please open this app inside Telegram.");
 
       const { data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
-          customer_id: userId,
+          customer_id: user.id,
           shop_id: shop.id,
           customer_name: customerName,
           delivery_address: address,
@@ -92,6 +76,18 @@ export default function Checkout() {
       const { error: itemsErr } = await supabase.from("order_items").insert(items);
       if (itemsErr) throw itemsErr;
 
+      // Send notification to seller via Telegram
+      try {
+        const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+        await fetch(`https://${projectId}.supabase.co/functions/v1/order-notify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: order.id }),
+        });
+      } catch {
+        // Non-critical - don't fail the order
+      }
+
       navigate(`/order/${order.id}`, { state: { order, items: cart } });
     } catch (error: any) {
       toast({ title: "Error placing order", description: error.message, variant: "destructive" });
@@ -107,7 +103,6 @@ export default function Checkout() {
           <CardTitle>Checkout</CardTitle>
         </CardHeader>
         <CardContent>
-          {/* Order Summary */}
           <div className="mb-4 space-y-2">
             {cart.map((item) => (
               <div key={item.product.id} className="flex justify-between text-sm">

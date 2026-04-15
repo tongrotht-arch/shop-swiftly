@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useTelegram } from "@/hooks/useTelegram";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +15,7 @@ type Order = Tables<"orders"> & { order_items: Tables<"order_items">[] };
 
 export default function Dashboard() {
   const { user, roles, signOut, loading } = useAuth();
+  const { isTelegram } = useTelegram();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [shop, setShop] = useState<Shop | null>(null);
@@ -21,7 +23,10 @@ export default function Dashboard() {
   const [productCount, setProductCount] = useState(0);
 
   useEffect(() => {
-    if (!loading && !user) navigate("/auth");
+    if (!loading && !user) {
+      if (!isTelegram) navigate("/");
+      return;
+    }
     if (!loading && user && !roles.includes("seller")) navigate("/role-select");
   }, [user, roles, loading]);
 
@@ -43,7 +48,6 @@ export default function Dashboard() {
     };
     fetchShop();
 
-    // Realtime subscription for new orders
     const channel = supabase
       .channel("orders-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, (payload) => {
@@ -109,16 +113,15 @@ export default function Dashboard() {
             <h1 className="text-xl font-bold text-foreground">{shop.name}</h1>
             <p className="text-sm text-muted-foreground">Seller Dashboard</p>
           </div>
-          <div className="flex gap-2">
+          {!isTelegram && (
             <Button variant="ghost" size="icon" onClick={() => { signOut(); navigate("/"); }}>
               <LogOut className="h-4 w-4" />
             </Button>
-          </div>
+          )}
         </div>
       </header>
 
       <main className="container mx-auto space-y-6 p-4">
-        {/* Shop Link */}
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <ExternalLink className="h-5 w-5 text-muted-foreground" />
@@ -132,7 +135,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Stats */}
         <div className="grid gap-4 sm:grid-cols-3">
           <Card>
             <CardContent className="flex items-center gap-3 p-4">
@@ -163,14 +165,12 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3">
           <Button onClick={() => navigate("/products")}>
             <Package className="mr-2 h-4 w-4" /> Manage Products
           </Button>
         </div>
 
-        {/* Orders */}
         <Card>
           <CardHeader>
             <CardTitle>Recent Orders</CardTitle>
