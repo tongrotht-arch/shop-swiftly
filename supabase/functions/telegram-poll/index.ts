@@ -5,7 +5,7 @@ const MAX_RUNTIME_MS = 55_000;
 const MIN_REMAINING_MS = 5_000;
 
 // IMPORTANT: Replace with your actual bot username
-const BOT_USERNAME = 'your_bot'; // TODO: Update this
+const BOT_USERNAME = 'tongroth_bot';
 
 Deno.serve(async () => {
   const startTime = Date.now();
