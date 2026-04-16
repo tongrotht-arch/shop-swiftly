@@ -74,6 +74,11 @@ Deno.serve(async (req) => {
     const username = tgUser.username ?? '';
     const email = `tg_${telegramId}@telegram.local`;
 
+    // Deterministic password: HMAC(service_role_key, telegram_id)
+    const password = createHmac('sha256', supabaseServiceKey)
+      .update(`telegram_user_${telegramId}`)
+      .digest('hex');
+
     // Find existing profile by telegram_id
     const { data: existingProfile } = await supabase
       .from('profiles')
@@ -81,52 +86,81 @@ Deno.serve(async (req) => {
       .eq('telegram_id', telegramId)
       .single();
 
-    let userId: string;
-
     if (existingProfile) {
-      userId = existingProfile.user_id;
-    } else {
-      // Create new user
-      const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+      // User exists — sign in directly
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
         email,
-        password: crypto.randomUUID(),
-        email_confirm: true,
-        user_metadata: {
-          display_name: firstName,
-          telegram_id: telegramId,
-          telegram_username: username,
-        },
+        password,
       });
 
-      if (createErr) throw createErr;
-      userId = newUser.user!.id;
+      if (signInErr) {
+        // Password might have changed or user was created with old method — update password
+        await supabase.auth.admin.updateUserById(existingProfile.user_id, { password });
+        const { data: retryData, error: retryErr } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (retryErr) throw retryErr;
 
-      // Update profile with telegram_id
-      await supabase
-        .from('profiles')
-        .update({ telegram_id: telegramId, display_name: firstName })
-        .eq('user_id', userId);
+        return new Response(JSON.stringify({
+          access_token: retryData.session!.access_token,
+          refresh_token: retryData.session!.refresh_token,
+          telegram_id: telegramId,
+          first_name: firstName,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-      // Set default customer role
-      await supabase
-        .from('user_roles')
-        .insert({ user_id: userId, role: 'customer' });
+      return new Response(JSON.stringify({
+        access_token: signInData.session!.access_token,
+        refresh_token: signInData.session!.refresh_token,
+        telegram_id: telegramId,
+        first_name: firstName,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    // Generate magic link for session
-    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
+    // New user — create account
+    const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
       email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        display_name: firstName,
+        telegram_id: telegramId,
+        telegram_username: username,
+      },
     });
 
-    if (linkErr) throw linkErr;
+    if (createErr) throw createErr;
+    const userId = newUser.user!.id;
 
-    const tokenHash = linkData.properties?.hashed_token;
-    if (!tokenHash) throw new Error('Failed to generate session token');
+    // Update profile with telegram_id
+    await supabase
+      .from('profiles')
+      .update({ telegram_id: telegramId, display_name: firstName })
+      .eq('user_id', userId);
+
+    // Set default customer role
+    await supabase
+      .from('user_roles')
+      .insert({ user_id: userId, role: 'customer' });
+
+    // Sign in the new user
+    const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (sessionErr) throw sessionErr;
 
     return new Response(JSON.stringify({
-      token_hash: tokenHash,
-      email,
+      access_token: sessionData.session!.access_token,
+      refresh_token: sessionData.session!.refresh_token,
       telegram_id: telegramId,
       first_name: firstName,
     }), {
