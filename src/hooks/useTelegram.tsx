@@ -77,14 +77,14 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Use the magic link token to establish a session
-        const { error: otpErr } = await supabase.auth.verifyOtp({
-          token_hash: data.token_hash,
-          type: "magiclink",
+        // Set session directly using the tokens from the backend
+        const { error: sessionErr } = await supabase.auth.setSession({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
         });
 
-        if (otpErr) {
-          setAuthError(otpErr.message);
+        if (sessionErr) {
+          setAuthError(sessionErr.message);
         }
       } catch (err: any) {
         setAuthError(err.message);
